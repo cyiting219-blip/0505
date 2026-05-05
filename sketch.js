@@ -1,24 +1,78 @@
 let capture;
+let faceMesh;
+let faces = []; // 變數名稱建議改為 faces 以符合新版慣例
 
 function setup() {
-  // 產生全螢幕畫布
   createCanvas(windowWidth, windowHeight);
-  // 擷取攝影機影像
+  
+  // 建立攝影機並設定固定尺寸以利模型運算
   capture = createCapture(VIDEO);
-  capture.hide(); // 隱藏預設的 HTML 影片元素
-  imageMode(CENTER); // 設定影像繪製模式為中心點，方便後續置中
+  capture.size(640, 480);
+  capture.hide();
+  imageMode(CENTER);
+
+  // 修正 1: ml5 v1.0 改用 faceMesh (小駝峰命名) 
+  // 修正 2: 使用 detectStart 進行持續偵測並更新 callback
+  faceMesh = ml5.faceMesh(capture, modelReady);
+  faceMesh.detectStart(capture, gotFaces);
+}
+
+function modelReady() {
+  console.log("FaceMesh model ready!");
+}
+
+function gotFaces(results) {
+  faces = results;
 }
 
 function draw() {
-  // 設定背景顏色為 e7c6ff
   background('#e7c6ff');
 
-  // 設定文字屬性與內容，顯示在畫布上方（影像上方區域）且左右置中
   textAlign(CENTER, CENTER);
-  textSize(32); // 可依需求調整文字大小
-  fill(0); // 設定文字顏色為黑色
+  textSize(32);
+  noStroke();
+  fill(0);
   text('教科414730373', width / 2, height / 8);
 
-  // 將影像繪製在畫布中間，寬高設定為畫布寬高的 50%
-  image(capture, width / 2, height / 2, width * 0.5, height * 0.5);
+  let drawW = width * 0.5;
+  let drawH = height * 0.5;
+  image(capture, width / 2, height / 2, drawW, drawH);
+
+  drawFacemarks(drawW, drawH);
+}
+
+function drawFacemarks(drawW, drawH) {
+  if (faces.length > 0) {
+    push();
+    const pts = [409, 270, 269, 267, 0, 37, 39, 40, 185, 61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
+    
+    let startX = width / 2 - drawW / 2;
+    let startY = height / 2 - drawH / 2;
+
+    stroke(255, 0, 0);
+    strokeWeight(15);
+
+    for (let i = 0; i < faces.length; i++) {
+      const keypoints = faces[i].keypoints;
+
+      for (let j = 0; j < pts.length; j++) {
+        let indexA = pts[j];
+        let indexB = pts[(j + 1) % pts.length];
+        
+        let ptA = keypoints[indexA];
+        let ptB = keypoints[indexB];
+        
+        if (ptA && ptB) {
+          // 修正 3: ml5 v1.0 的座標格式為 {x, y} 而非舊版的陣列 [0, 1]
+          let x1 = startX + (ptA.x / capture.width) * drawW;
+          let y1 = startY + (ptA.y / capture.height) * drawH;
+          let x2 = startX + (ptB.x / capture.width) * drawW;
+          let y2 = startY + (ptB.y / capture.height) * drawH;
+          
+          line(x1, y1, x2, y2);
+        }
+      }
+    }
+    pop();
+  }
 }
