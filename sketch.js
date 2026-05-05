@@ -1,63 +1,99 @@
 let capture;
-let faceMesh;
-let faces = [];
-// 這是您指定的嘴唇周圍特徵點編號
-const lipPoints = [409, 270, 269, 267, 0, 37, 39, 40, 185, 61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291];
+let facemesh;
+let predictions = [];
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
   capture = createCapture(VIDEO);
-  capture.size(640, 480);
-  capture.hide();
+  capture.hide(); // 隱藏 p5.js 自動產生的預設 HTML 影片標籤
+  imageMode(CENTER); // 設定影像定位點在中心，方便後續置中對齊
 
-  // 初始化 ml5 v1.0 faceMesh
-  faceMesh = ml5.faceMesh(capture, () => console.log("Model Ready"));
-  faceMesh.detectStart(capture, (results) => { faces = results; });
+  // ml5.js v1.x API: faceMesh（注意大寫 M）
+  facemesh = ml5.faceMesh({ maxFaces: 1 }, modelReady);
+}
+
+function modelReady() {
+  console.log("Facemesh model loaded!");
+  facemesh.detectStart(capture, gotFaces);
+}
+
+function gotFaces(results) {
+  predictions = results;
 }
 
 function draw() {
   background('#e7c6ff');
 
-  // 顯示學號文字
-  textAlign(CENTER, CENTER);
-  textSize(32);
-  noStroke();
-  fill(0);
-  text('教科414730373', width / 2, height / 8);
+  // 在影像上方顯示文字（寫在 push/pop 之外，避免文字被左右顛倒）
+  fill(0); // 設定文字顏色為黑色
+  textSize(32); // 設定文字大小
+  textAlign(CENTER, CENTER); // 設定文字對齊方式為置中
+  text('教科414730936', width / 2, height * 0.15); // 將文字繪製在畫布上方 (約 15% 高度處)
 
-  // 設定影像繪製參數（置中顯示於畫布，大小為畫布一半）
-  let drawW = width * 0.5;
-  let drawH = height * 0.5;
-  let startX = width / 2 - drawW / 2;
-  let startY = height / 2 - drawH / 2;
-  image(capture, width / 2, height / 2, drawW, drawH);
+  push(); // 儲存目前的畫布座標狀態
+  translate(width, 0); // 將座標原點移至畫布右側
+  scale(-1, 1); // 水平翻轉影像（左右顛倒），垂直不變
+  // 在畫布正中間繪製影像，寬與高皆設定為畫布寬高的 50%
+  image(capture, width / 2, height / 2, width * 0.5, height * 0.5);
 
-  // 如果偵測到臉部，繪製嘴唇線條
-  if (faces.length > 0) {
-    stroke(255, 0, 0); // 紅色線條
-    strokeWeight(15);   // 線條粗細 15
-    noFill();
+  // 繪製 facemesh 特徵點
+  if (predictions.length > 0 && capture.width > 0) {
+    let keypoints = predictions[0].keypoints;
 
-    for (let i = 0; i < faces.length; i++) {
-      let keypoints = faces[i].keypoints;
-      
-      for (let j = 0; j < lipPoints.length; j++) {
-        let currIdx = lipPoints[j];
-        let nextIdx = lipPoints[(j + 1) % lipPoints.length]; // 閉合迴圈
-        
-        let ptA = keypoints[currIdx];
-        let ptB = keypoints[nextIdx];
-        
-        if (ptA && ptB) {
-          // 根據畫面上影像的實際縮放比例與位置計算座標
-          let x1 = startX + (ptA.x / capture.width) * drawW;
-          let y1 = startY + (ptA.y / capture.height) * drawH;
-          let x2 = startX + (ptB.x / capture.width) * drawW;
-          let y2 = startY + (ptB.y / capture.height) * drawH;
-          
-          line(x1, y1, x2, y2);
-        }
+    // 將攝影機座標映射到畫布上影像的對應位置
+    function mapPt(pt) {
+      return {
+        x: map(pt.x, 0, capture.width,  width  / 2 - width  * 0.25, width  / 2 + width  * 0.25),
+        y: map(pt.y, 0, capture.height, height / 2 - height * 0.25, height / 2 + height * 0.25)
+      };
+    }
+
+    // 依照給定的索引陣列與顏色，繪製封閉輪廓線
+    function drawContour(indices, col) {
+      stroke(col);
+      for (let i = 0; i < indices.length; i++) {
+        let a = mapPt(keypoints[indices[i]]);
+        let b = mapPt(keypoints[indices[(i + 1) % indices.length]]);
+        line(a.x, a.y, b.x, b.y);
       }
     }
+
+    // 用 #fdf0d5 填滿臉部輪廓外的區域，讓畫面只露出臉部
+    let faceOval = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+    let imgL = width / 2 - width * 0.25;
+    let imgR = width / 2 + width * 0.25;
+    let imgT = height / 2 - height * 0.25;
+    let imgB = height / 2 + height * 0.25;
+    fill('#fdf0d5');
+    noStroke();
+    beginShape();
+    vertex(imgL, imgT);   // 外框：影像範圍四個角（順時針）
+    vertex(imgR, imgT);
+    vertex(imgR, imgB);
+    vertex(imgL, imgB);
+    beginContour();       // 鏤空：臉部輪廓（逆時針，與外框方向相反形成孔洞）
+    for (let i = faceOval.length - 1; i >= 0; i--) {
+      let pt = mapPt(keypoints[faceOval[i]]);
+      vertex(pt.x, pt.y);
+    }
+    endContour();
+    endShape(CLOSE);
+
+    strokeWeight(3);
+    noFill();
+
+    // 嘴唇（紅色）
+    drawContour([409, 270, 269, 267, 0, 37, 39, 40, 185, 61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291], color(255, 0, 0));
+
+    // 左眼（藍色）— MediaPipe 左眼輪廓索引
+    drawContour([362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398], color(0, 100, 255));
+
+    // 右眼（金色）— MediaPipe 右眼輪廓索引
+    drawContour([33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246], color(255, 200, 0));
+
+    // 臉部外輪廓（藍色，線條粗細 2）
+    strokeWeight(2);
+    drawContour([10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109], color(0, 0, 255));
   }
+  pop(); // 恢復畫布座標狀態
 }
